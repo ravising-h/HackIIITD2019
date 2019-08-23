@@ -1,89 +1,72 @@
-import cv2
-import os
 import numpy as np
-#from PIL import Image
-#from keras_vggface.vggface import VGGFace
-#import random
-#from tqdm import tqdm
-#from matplotlib import pyplot as plt
-#from math import floor
-#import seaborn as sns
-##import random
-#from scipy import ndarray
-#import skimage as sk
-#from skimage import transform
-#from skimage import util
-#import warnings
-#warnings.filterwarnings('ignore')
-#from keras.preprocessing.image import ImageDataGenerator
-#from tqdm import tqdm
-from keras.layers import Input,Conv2D,Dense, Dropout, BatchNormalization, MaxPooling2D, Activation, Flatten, AvgPool2D
-from keras.layers import  BatchNormalization as btn
-from keras.models import Model, Sequential
-from keras.applications.resnet50 import ResNet50
-#from sklearn.metrics import precision_score, recall_score, confusion_matrix, classification_report, accuracy_score, f1_score
-#from keras.callbacks import LearningRateScheduler
-#from IPython.display import HTML
-#import base64
-#from scipy.ndimage.interpolation import shift
+import os
+import pandas as pd
+import pickle
+import matplotlib.pyplot as plt
+import random
+from tqdm import tqdm
+#from image_processing import processing
+
 from keras.optimizers import Adam
-#from xgboost import XGBClassifier
-#from sklearn.ensemble import RandomForestClassifier
-#from sklearn.neighbors import KNeighborsClassifier
-face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml') #### FOR FACE DETECTION
-def detect(gray, frame):
-    """
-    
-    THIS FUNCTION DETECTS THE FACE IN GREY IMAGE AND CROP IT THEN PREDICT ITS  FACE FEATURE
-    
-    PAPAMETER:
-    GREY:  np array; THE GREY SCALE OF IMAGE
-    FRAME: np array; ACTUAL IMAGE
-    
-    RETURNS:
-    FACE_FEATURE: np.array; PREDICTED ARRAY OF SIZE (1,2048)
-    FRAME_CROP: np array; CROPED IMAGE
-    
-    """
-    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
-    
-    try:
-        x, y, w, h = faces[0]
-        frame_crop = frame[x:x+w,y:y+h]
+from keras.applications.resnet50 import ResNet50
+from keras.layers import Dense, Flatten,Input, Convolution2D, Dropout, LSTM, TimeDistributed, Embedding, Bidirectional, Activation,BatchNormalization, RepeatVector,Concatenate
+from keras.models import Sequential, Model
+from keras.utils import np_utils
+from keras.preprocessing import image, sequence
+
+embedding_size = 128
+max_len = 40
+
+
+
+image_model = Sequential()
+
+image_model.add(Dense(embedding_size, input_shape=(2048,), activation='relu'))
+image_model.add(BatchNormalization())
+image_model.add(RepeatVector(max_len))
+
+image_model.summary()
+
+language_model = Sequential()
+
+language_model.add(Embedding(input_dim=8254, output_dim=embedding_size, input_length=max_len))
+language_model.add(LSTM(275, return_sequences=True))
+language_model.add(TimeDistributed(Dense(embedding_size)))
+
+language_model.summary()
+
+conca = Concatenate()([image_model.output, language_model.output])
+x = LSTM(150, return_sequences=True)(conca)
+x = LSTM(550, return_sequences=False)(x)
+x = Dense(8254)(x)
+out = Activation('softmax')(x)
+model = Model(inputs=[image_model.input, language_model.input], outputs = out)
+
+model.load_weights("model/model_weights2.h5")
+model.compile(loss='categorical_crossentropy', optimizer='RMSprop', metrics=['accuracy'])
+model.summary()
+
+model.load_weights('model_weights1.h5')
+import json
+with open('model/word_in.json') as json_data:
+    word_in = json.load(json_data)
+
+with open('model/in_word.json') as json_data:
+    in_word = json.load(json_data)
+
+def predict_captions(image):
+    start_word = ["<start>"]
+    while True:
+        par_caps = [word_in[i] for i in start_word]
+        par_caps = sequence.pad_sequences([par_caps], maxlen=max_len, padding='post')
+        preds = model.predict([np.array([image]), np.array(par_caps)])
+        word_pred = in_word[str(np.argmax(preds[0]))]
+        start_word.append(word_pred)
         
-        
-        return frame_crop
-    except:
-        return None
+        if word_pred == "<end>" or len(start_word) > max_len:
+            break
+            
+    return ' '.join(start_word[1:-1])
 
-     
-def fetch_image():
-	path = "Images/"
-	index = -1
-	photos = os.listdir("Images/")
-
-	img = cv2.imread(photos[index])
-	grey = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
-	if Not(detect(grey,img) == None): 
-		frame = cv2.resize(detect(grey,img), (224,224))
-	return frame
-frame = fetch_image()
-ras_model = ResNet50(include_top=False,weights= 'resnet.h5',input_shape=(224,224,3))
-ras_model.trainable = False
-f1 = Flatten()(ras_model.output)
-f4 = Dense(512)(f1)
-f4 = Activation('relu')(f4)
-f2 = Dense(1)(f4)
-out = Activation('sigmoid')(f2)
-
-model1 = Model(inputs = ras_model.input,outputs = out)
-model2 = Model(inputs = ras_model.input,outputs = out)
-model1.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
-model2.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
-model1.load_weights("model1.h5")
-model2.load_weights("model2.h5")
-
-v = model2.predict(frame.reshape(1,224,224,3))
-k = model1.predict(frame.reshape(1,224,224,3))
-with open("result/pick.txt","w") as f:
-	f.write(str(k),str(v))
+#Argmax_Search = predict_captions(pred_test)
+with open("result/pick.txt","w")
